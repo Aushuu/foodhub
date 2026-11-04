@@ -2,6 +2,18 @@ import { ObjectId } from 'mongodb';
 import { connectToDatabase } from '../_lib/db.js';
 import { authenticateRequest } from '../_lib/auth.js';
 
+const safeObjectId = (id) => {
+  if (!id) return null;
+  if (typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id)) {
+    try {
+      return new ObjectId(id);
+    } catch {
+      return id;
+    }
+  }
+  return id;
+};
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -13,32 +25,40 @@ export default async function handler(req, res) {
 
   try {
     const user = authenticateRequest(req);
-    const { db } = await connectToDatabase();
-    const ordersCollection = db.collection('orders');
+    const email = req.query.email || (user ? user.email : null);
 
-    let filter = {};
+    let queryConditions = [];
+
     if (user && user.userId) {
-      filter = {
-        $or: [
-          { userId: new ObjectId(user.userId) },
-          { customerEmail: user.email }
-        ]
-      };
-    } else {
-      // If unauthenticated guest request, return recent orders from same session if email supplied
-      const email = req.query.email;
-      if (email) {
-        filter = { customerEmail: email };
-      } else {
-        return res.status(200).json([]);
+      const objId = safeObjectId(user.userId);
+      if (objId instanceof ObjectId) {
+        queryConditions.push({ userId: objId });
       }
+      queryConditions.push({ userId: user.userId });
     }
 
-    const orders = await ordersCollection.find(filter).sort({ createdAt: -1 }).toArray();
-    return res.status(200).json(orders);
+    if (email) {
+      queryConditions.push({ customerEmail: { $regex: new RegExp(`^${email.trim()}$`, 'i') } });
+    }
+
+    if (queryConditions.length === 0) {
+      return res.status(200).json([]);
+    }
+
+    try {
+      const { db } = await connectToDatabase();
+      const ordersCollection = db.collection('orders');
+      const orders = await ordersCollection
+        .find({ $or: queryConditions })
+        .sort({ createdAt: -1 })
+        .toArray();
+      return res.status(200).json(orders);
+    } catch (dbErr) {
+      console.warn('My Orders DB fallback:', dbErr.message);
+      return res.status(200).json([]);
+    }
   } catch (err) {
-    console.warn('My Orders API Error, returning empty list:', err.message);
+    console.warn('My Orders API Error:', err.message);
     return res.status(200).json([]);
   }
 }
-

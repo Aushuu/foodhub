@@ -16,31 +16,56 @@ const getUserFromHeader = (req) => {
   }
 };
 
+const safeObjectId = (id) => {
+  if (!id) return null;
+  if (typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id)) {
+    try {
+      return new ObjectId(id);
+    } catch {
+      return id;
+    }
+  }
+  return id;
+};
+
 // Create Order
 router.post('/', async (req, res) => {
   try {
-    const db = getDb();
-    if (!db) return res.status(503).json({ message: 'Database not connected' });
-
     const user = getUserFromHeader(req);
-    const { items, deliveryAddress, customerName, customerEmail, subtotal, deliveryFee, tax, discount, totalAmount, paymentMethod } = req.body;
+    const { 
+      items, 
+      deliveryAddress, 
+      customerName, 
+      customerEmail, 
+      subtotal, 
+      deliveryFee, 
+      tax, 
+      discount, 
+      totalAmount, 
+      paymentMethod 
+    } = req.body || {};
 
     if (!items || items.length === 0 || !deliveryAddress) {
       return res.status(400).json({ message: 'Items and delivery address are required' });
     }
 
-    const calculatedSubtotal = Number(subtotal);
-    const calculatedDeliveryFee = Number(deliveryFee);
+    const calculatedSubtotal = Number(subtotal) || 0;
+    const calculatedDeliveryFee = deliveryFee !== undefined ? Number(deliveryFee) : 3.99;
     const calculatedTax = tax !== undefined ? Number(tax) : Number((calculatedSubtotal * 0.08).toFixed(2));
     const calculatedDiscount = discount !== undefined ? Number(discount) : 0;
-    const calculatedTotal = totalAmount !== undefined ? Number(totalAmount) : Number((calculatedSubtotal + calculatedDeliveryFee + calculatedTax - calculatedDiscount).toFixed(2));
+    const calculatedTotal = totalAmount !== undefined 
+      ? Number(totalAmount) 
+      : Number((calculatedSubtotal + calculatedDeliveryFee + calculatedTax - calculatedDiscount).toFixed(2));
+
+    const randomHex = Array.from({ length: 24 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+    let orderId = randomHex;
 
     const newOrder = {
-      userId: user ? new ObjectId(user.userId) : null,
-      customerName: customerName || (user ? user.email : 'Guest Customer'),
+      userId: user ? safeObjectId(user.userId) : null,
+      customerName: customerName || (user ? (user.name || user.email) : 'Guest Customer'),
       customerEmail: customerEmail || (user ? user.email : ''),
-      items: items.map(item => ({
-        foodId: item.foodId ? new ObjectId(item.foodId) : null,
+      items: items.map((item) => ({
+        foodId: safeObjectId(item.foodId),
         name: item.name,
         price: Number(item.price),
         quantity: Number(item.quantity),
@@ -58,39 +83,50 @@ router.post('/', async (req, res) => {
       createdAt: new Date()
     };
 
-    const result = await db.collection('orders').insertOne(newOrder);
-    res.status(201).json({ ...newOrder, _id: result.insertedId });
+    const db = getDb();
+    if (db) {
+      const result = await db.collection('orders').insertOne(newOrder);
+      if (result && result.insertedId) {
+        orderId = result.insertedId.toString();
+      }
+    }
+
+    return res.status(201).json({ ...newOrder, _id: orderId });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error('Local Orders POST Error:', err);
+    return res.status(500).json({ message: err.message });
   }
 });
 
 // Get customer orders
 router.get('/my', async (req, res) => {
   try {
-    const db = getDb();
-    if (!db) return res.status(503).json({ message: 'Database not connected' });
-
     const user = getUserFromHeader(req);
-    let filter = {};
+    const email = req.query.email || (user ? user.email : null);
 
+    let queryConditions = [];
     if (user && user.userId) {
-      filter = {
-        $or: [
-          { userId: new ObjectId(user.userId) },
-          { customerEmail: user.email }
-        ]
-      };
-    } else if (req.query.email) {
-      filter = { customerEmail: req.query.email };
-    } else {
+      const objId = safeObjectId(user.userId);
+      if (objId instanceof ObjectId) {
+        queryConditions.push({ userId: objId });
+      }
+      queryConditions.push({ userId: user.userId });
+    }
+    if (email) {
+      queryConditions.push({ customerEmail: { $regex: new RegExp(`^${email.trim()}$`, 'i') } });
+    }
+
+    if (queryConditions.length === 0) {
       return res.json([]);
     }
 
-    const orders = await db.collection('orders').find(filter).sort({ createdAt: -1 }).toArray();
-    res.json(orders);
+    const db = getDb();
+    if (!db) return res.json([]);
+
+    const orders = await db.collection('orders').find({ $or: queryConditions }).sort({ createdAt: -1 }).toArray();
+    return res.json(orders);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    return res.status(500).json({ message: err.message });
   }
 });
 
@@ -98,42 +134,38 @@ router.get('/my', async (req, res) => {
 router.get('/', async (req, res) => {
   try {
     const db = getDb();
-    if (!db) return res.status(503).json({ message: 'Database not connected' });
+    if (!db) return res.json([]);
 
     const orders = await db.collection('orders').find({}).sort({ createdAt: -1 }).toArray();
-    res.json(orders);
+    return res.json(orders);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    return res.status(500).json({ message: err.message });
   }
 });
 
-// Admin: Update order status
+// Admin / Live: Update order status
 router.patch('/', async (req, res) => {
   try {
-    const db = getDb();
-    if (!db) return res.status(503).json({ message: 'Database not connected' });
-
-    const { orderId, orderStatus } = req.body;
+    const { orderId, orderStatus } = req.body || {};
     if (!orderId || !orderStatus) {
       return res.status(400).json({ message: 'orderId and orderStatus are required' });
     }
 
-    let queryId;
-    try {
-      queryId = new ObjectId(orderId);
-    } catch {
-      return res.status(400).json({ message: 'Invalid ID format' });
+    const db = getDb();
+    if (db) {
+      const filter = /^[0-9a-fA-F]{24}$/.test(orderId)
+        ? { $or: [{ _id: new ObjectId(orderId) }, { _id: orderId }] }
+        : { _id: orderId };
+
+      await db.collection('orders').updateOne(
+        filter,
+        { $set: { orderStatus } }
+      );
     }
 
-    const result = await db.collection('orders').findOneAndUpdate(
-      { _id: queryId },
-      { $set: { orderStatus } },
-      { returnDocument: 'after' }
-    );
-
-    res.json(result);
+    return res.json({ _id: orderId, orderStatus });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    return res.status(500).json({ message: err.message });
   }
 });
 

@@ -46,7 +46,8 @@ export default function Orders() {
   const fetchOrders = async (showSpinner = true) => {
     if (showSpinner) setLoading(true);
     try {
-      const data = await api.getMyOrders();
+      const email = user?.email || '';
+      const data = await api.getMyOrders(email);
       setOrders(data);
     } catch (err) {
       console.error("Failed to load orders:", err);
@@ -248,35 +249,6 @@ export default function Orders() {
             </Link>
           </div>
         </div>
-      ) : !user ? (
-        <div className="max-w-md mx-auto my-12 p-8 bg-white rounded-3xl border border-slate-100 shadow-soft text-center space-y-5 animate-fade-in">
-          <div className="w-16 h-16 bg-orange-50 text-orange-500 rounded-2xl flex items-center justify-center mx-auto text-3xl">
-            📦
-          </div>
-          <div className="space-y-2">
-            <h2 className="text-2xl font-black text-slate-900">Sign In to Track Orders</h2>
-            <p className="text-slate-500 text-xs sm:text-sm leading-relaxed">
-              You are currently viewing as guest (or in Incognito). Please sign in to view your live orders and GPS delivery radar.
-            </p>
-          </div>
-          <div className="pt-2 flex flex-col gap-2.5">
-            <Link
-              to="/login"
-              className="w-full py-3.5 px-4 bg-orange-500 hover:bg-orange-600 active:scale-95 text-white font-bold rounded-xl shadow-lg shadow-orange-500/25 transition text-sm"
-            >
-              Sign In to Your Account
-            </Link>
-            <button
-              onClick={async () => {
-                const res = await login('customer@foodhub.com', 'customer123');
-                if (res.success) fetchOrders(true);
-              }}
-              className="w-full py-2.5 px-4 bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold rounded-xl text-xs transition"
-            >
-              Sign In as Test Customer (customer@foodhub.com)
-            </button>
-          </div>
-        </div>
       ) : loading ? (
         <div className="space-y-4">
           {[1, 2].map((n) => (
@@ -289,25 +261,24 @@ export default function Orders() {
             </div>
           ))}
         </div>
-      ) : orders.length === 0 ? (
-        <div className="text-center py-20 bg-white rounded-3xl border border-slate-100 shadow-sm max-w-lg mx-auto p-8 space-y-4">
-          <div className="w-16 h-16 bg-orange-50 text-orange-500 rounded-full flex items-center justify-center mx-auto text-3xl">
-            📦
-          </div>
-          <h3 className="text-xl font-bold text-slate-800">No Orders Placed Yet</h3>
-          <p className="text-slate-500 text-sm max-w-xs mx-auto">
-            You haven't placed any food orders yet. Ready to experience something delicious?
-          </p>
-          <Link
-            to="/menu"
-            className="inline-flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white font-semibold px-6 py-3 rounded-2xl text-sm shadow transition"
-          >
-            <ShoppingBag className="w-4 h-4" />
-            <span>Explore Menu Now</span>
-          </Link>
-        </div>
-      ) : (
+      ) : orders.length > 0 ? (
         <div className="space-y-8">
+          {!user && (
+            <div className="p-4 bg-orange-50 border border-orange-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs sm:text-sm text-orange-900 shadow-xs">
+              <div className="flex items-center gap-2">
+                <span className="text-base">📦</span>
+                <span>
+                  <strong>Guest Order Tracking:</strong> Showing active order placed in this browser. Sign in or sign up to save order history permanently.
+                </span>
+              </div>
+              <Link
+                to="/login"
+                className="self-start sm:self-auto px-3.5 py-1.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold text-xs transition shadow-xs"
+              >
+                Sign In
+              </Link>
+            </div>
+          )}
           {orders.map((order) => {
             const currentStageIndex = getStageIndex(order.orderStatus);
             const isSimulating = simulatingOrderId === order._id;
@@ -579,6 +550,52 @@ export default function Orders() {
               </div>
             );
           })}
+        </div>
+      ) : !user ? (
+        <div className="max-w-md mx-auto my-12 p-8 bg-white rounded-3xl border border-slate-100 shadow-soft text-center space-y-5 animate-fade-in">
+          <div className="w-16 h-16 bg-orange-50 text-orange-500 rounded-2xl flex items-center justify-center mx-auto text-3xl">
+            📦
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-2xl font-black text-slate-900">Sign In to Track Orders</h2>
+            <p className="text-slate-500 text-xs sm:text-sm leading-relaxed">
+              You are currently viewing as guest. Please sign in to view your live orders and GPS delivery radar.
+            </p>
+          </div>
+          <div className="pt-2 flex flex-col gap-2.5">
+            <Link
+              to="/login"
+              className="w-full py-3.5 px-4 bg-orange-500 hover:bg-orange-600 active:scale-95 text-white font-bold rounded-xl shadow-lg shadow-orange-500/25 transition text-sm"
+            >
+              Sign In to Your Account
+            </Link>
+            <button
+              onClick={async () => {
+                const res = await login('customer@foodhub.com', 'customer123');
+                if (res.success) fetchOrders(true);
+              }}
+              className="w-full py-2.5 px-4 bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold rounded-xl text-xs transition"
+            >
+              Sign In as Test Customer (customer@foodhub.com)
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="text-center py-20 bg-white rounded-3xl border border-slate-100 shadow-sm max-w-lg mx-auto p-8 space-y-4">
+          <div className="w-16 h-16 bg-orange-50 text-orange-500 rounded-full flex items-center justify-center mx-auto text-3xl">
+            📦
+          </div>
+          <h3 className="text-xl font-bold text-slate-800">No Orders Placed Yet</h3>
+          <p className="text-slate-500 text-sm max-w-xs mx-auto">
+            You haven't placed any food orders yet. Ready to experience something delicious?
+          </p>
+          <Link
+            to="/menu"
+            className="inline-flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white font-semibold px-6 py-3 rounded-2xl text-sm shadow transition"
+          >
+            <ShoppingBag className="w-4 h-4" />
+            <span>Explore Menu Now</span>
+          </Link>
         </div>
       )}
     </div>
