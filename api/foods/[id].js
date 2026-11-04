@@ -1,6 +1,7 @@
 import { ObjectId } from 'mongodb';
 import { connectToDatabase } from '../_lib/db.js';
 import { authenticateRequest } from '../_lib/auth.js';
+import { DEFAULT_FOODS } from '../_lib/defaultFoods.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', true);
@@ -14,24 +15,37 @@ export default async function handler(req, res) {
 
   const { id } = req.query;
 
-  try {
-    const { db } = await connectToDatabase();
-    const collection = db.collection('foods');
-
-    let queryId;
+  // GET: Single dish (with resilient fallback)
+  if (req.method === 'GET') {
     try {
-      queryId = new ObjectId(id);
-    } catch (e) {
-      return res.status(400).json({ message: 'Invalid food ID format' });
+      const { db } = await connectToDatabase();
+      const collection = db.collection('foods');
+
+      let queryId;
+      try {
+        queryId = new ObjectId(id);
+      } catch (e) {
+        // Not a standard ObjectId, search by string or default fallback
+      }
+
+      const food = queryId 
+        ? await collection.findOne({ _id: queryId })
+        : await collection.findOne({ $or: [{ _id: id }, { name: id }] });
+
+      if (food) {
+        return res.status(200).json(food);
+      }
+    } catch (dbErr) {
+      console.warn('DB lookup failed for food item:', dbErr.message);
     }
 
-    if (req.method === 'GET') {
-      const food = await collection.findOne({ _id: queryId });
-      if (!food) {
-        return res.status(404).json({ message: 'Food item not found' });
-      }
-      return res.status(200).json(food);
+    // Fallback to default catalog
+    const fallbackFood = DEFAULT_FOODS.find((f) => f._id === id || f.name.toLowerCase() === id.toLowerCase());
+    if (fallbackFood) {
+      return res.status(200).json(fallbackFood);
     }
+    return res.status(404).json({ message: 'Food item not found' });
+  }
 
     if (req.method === 'PUT') {
       const user = authenticateRequest(req);

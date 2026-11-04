@@ -1,5 +1,6 @@
 // FoodHub API Service
 // Connects frontend to the Express backend and MongoDB Atlas
+import { INITIAL_FOODS } from './foodData';
 
 const BASE_URL = '/api';
 
@@ -19,19 +20,47 @@ export const api = {
     if (category && category !== 'all') params.append('category', category);
     if (search) params.append('search', search);
 
-    const res = await fetch(`${BASE_URL}/foods?${params.toString()}`);
-    if (!res.ok) {
-      throw new Error(`Failed to fetch foods (${res.status})`);
+    try {
+      const res = await fetch(`${BASE_URL}/foods?${params.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          return data;
+        }
+      }
+    } catch (err) {
+      console.warn('API getFoods network issue, using fallback data:', err);
     }
-    return await res.json();
+
+    // High reliability fallback: Filter INITIAL_FOODS locally
+    let list = [...INITIAL_FOODS];
+    if (category && category !== 'all') {
+      list = list.filter((f) => f.category && f.category.toLowerCase() === category.toLowerCase());
+    }
+    if (search) {
+      const q = search.toLowerCase();
+      list = list.filter((f) =>
+        (f.name && f.name.toLowerCase().includes(q)) ||
+        (f.description && f.description.toLowerCase().includes(q))
+      );
+    }
+    return list;
   },
 
   async getFoodById(id) {
-    const res = await fetch(`${BASE_URL}/foods/${id}`);
-    if (!res.ok) {
-      throw new Error('Food item not found');
+    try {
+      const res = await fetch(`${BASE_URL}/foods/${id}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.name) return data;
+      }
+    } catch (err) {
+      console.warn('API getFoodById failed, checking fallback catalog:', err);
     }
-    return await res.json();
+
+    const item = INITIAL_FOODS.find((f) => (f._id || f.id) === id || f.name.toLowerCase() === id.toLowerCase());
+    if (item) return item;
+    throw new Error('Food item not found');
   },
 
   async createFood(foodData) {

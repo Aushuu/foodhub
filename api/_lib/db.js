@@ -4,11 +4,13 @@ import dns from 'dns';
 
 dotenv.config();
 
-// Ensure reliable SRV resolution on Windows
-try {
-  dns.setServers(['8.8.8.8', '1.1.1.1']);
-} catch (e) {
-  // ignore
+// Ensure reliable SRV resolution on local Windows machines only
+if (process.platform === 'win32' && !process.env.VERCEL) {
+  try {
+    dns.setServers(['8.8.8.8', '1.1.1.1']);
+  } catch (e) {
+    // ignore
+  }
 }
 
 let cachedClient = null;
@@ -19,14 +21,17 @@ export async function connectToDatabase() {
   const dbName = process.env.MONGODB_DB || 'foodhub';
 
   if (!uri) {
-    throw new Error('Please define the MONGODB_URI environment variable inside .env');
+    throw new Error('Please define the MONGODB_URI environment variable');
   }
 
   if (cachedClient && cachedDb) {
     return { client: cachedClient, db: cachedDb };
   }
 
-  const client = new MongoClient(uri);
+  const client = new MongoClient(uri, {
+    serverSelectionTimeoutMS: 5000,
+    connectTimeoutMS: 5000
+  });
   await client.connect();
   const db = client.db(dbName);
 
