@@ -51,6 +51,15 @@ export default async function handler(req, res) {
 
       let foods = await collection.find(filter).sort({ createdAt: -1 }).toArray();
 
+      // Auto-heal any broken legacy image links
+      foods = foods.map((food) => {
+        if (food.image && (food.image.includes('1576107232684') || !food.image.startsWith('http'))) {
+          food.image = 'https://images.unsplash.com/photo-1573080496219-bb080dd4f877?auto=format&fit=crop&w=800&q=80';
+          collection.updateOne({ _id: food._id }, { $set: { image: food.image } }).catch(() => {});
+        }
+        return food;
+      });
+
       // If database collection is empty, auto-seed with default dishes!
       if (foods.length === 0 && (!category || category === 'all') && !search) {
         try {

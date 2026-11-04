@@ -29,7 +29,7 @@ export const DEFAULT_FOODS = [
     description: "Hand-cut golden russet fries tossed in white truffle oil, grated aged parmesan, cracked black pepper, and fresh rosemary with garlic aioli.",
     price: 7.99,
     category: "Sides",
-    image: "https://images.unsplash.com/photo-1576107232684-1279f3908594?auto=format&fit=crop&w=800&q=80",
+    image: "https://images.unsplash.com/photo-1573080496219-bb080dd4f877?auto=format&fit=crop&w=800&q=80",
     isVegetarian: true,
     isAvailable: true,
     rating: 4.7,
